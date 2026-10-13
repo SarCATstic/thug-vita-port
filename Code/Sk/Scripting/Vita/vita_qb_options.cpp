@@ -33,8 +33,8 @@
 **       VitaOptToggle name=<cle> -> bascule, applique, reecrit             **
 **                                   controls.txt, rend value/value_text    **
 **     Cles : invert_left_x, invert_left_y, invert_right_x, invert_right_y, **
-**     triggers_as_l2r2, touch_on_rear_pad, framerate. Les reglages vivent  **
-**     dans Sys/SIO/Vita/p_siodev.cpp (SIO::VitaReglage*).               **
+**     framerate. Les reglages vivent dans Sys/SIO/Vita/p_siodev.cpp        **
+**     (SIO::VitaReglage*).                                                 **
 *****************************************************************************/
 
 #include <core/defines.h>
@@ -392,7 +392,7 @@ void VitaChargerQBOptions( void )
 static const char *const s_cles[] =
 {
 	"invert_left_x", "invert_left_y", "invert_right_x", "invert_right_y",
-	"triggers_as_l2r2", "touch_on_rear_pad", "framerate", NULL
+	"framerate", "dualshock_layout", NULL
 };
 
 static const char *cle_depuis_params( Script::CStruct *pParams )
@@ -409,9 +409,9 @@ static const char *cle_depuis_params( Script::CStruct *pParams )
 // Texte affiche dans le menu, minuscules comme CONTROL SETUP ("on"/"off").
 static const char *texte_valeur( const char *p_cle, int v )
 {
-	if( strcmp( p_cle, "framerate" ) == 0 )			return ( v == 30 ) ? "30" : "60";
-	if( strcmp( p_cle, "triggers_as_l2r2" ) == 0 )	return v ? "L2/R2" : "L1/R1";
-	if( strcmp( p_cle, "touch_on_rear_pad" ) == 0 )	return v ? "rear" : "front";
+	if( strcmp( p_cle, "framerate" ) == 0 )			return ( v == 30 ) ? "30 fps" : "60 fps";
+	if( strcmp( p_cle, "dualshock_layout" ) == 0 )	return v ? "dualshock" : "ps vita";
+	if( strncmp( p_cle, "invert_", 7 ) == 0 )		return v ? "inverted" : "normal";
 	return v ? "on" : "off";
 }
 

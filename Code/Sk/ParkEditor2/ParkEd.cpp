@@ -1,3 +1,6 @@
+#ifdef __PLAT_VITA__
+namespace SIO { extern int g_vita_manette_ds; }	// Sys/SIO/Vita/p_siodev.cpp
+#endif
 #include <core/defines.h>
 #ifdef __PLAT_VITA__
 #include "vita_log.h"
@@ -1307,7 +1310,11 @@ void CParkEditor::s_input_logic_code ( const Inp::Handler < CParkEditor >& handl
 		mdl.m_commands.SetMask( mDECREASE_GAP_LEFT );
 	}
 #else
-	#ifdef __PLAT_XBOX__
+	#if defined( __PLAT_XBOX__ ) || defined( __PLAT_VITA__ )
+	#ifdef __PLAT_VITA__
+	if( !::SIO::g_vita_manette_ds )	// disposition Vita = manette Xbox (Sys/SIO/Vita/p_siodev.cpp)
+	{
+	#endif
 		if( handler.m_Input->m_Makes & Inp::Data::mD_L1 )
 		{
 			mdl.m_commands.SetMask( mINCREASE_GAP_RIGHT );
@@ -1324,7 +1331,13 @@ void CParkEditor::s_input_logic_code ( const Inp::Handler < CParkEditor >& handl
 		{
 			mdl.m_commands.SetMask( mDECREASE_GAP_LEFT );
 		}
-	#else
+	#ifdef __PLAT_VITA__
+	}
+	else
+	{
+	#endif
+	#endif
+	#if !defined( __PLAT_XBOX__ )
 		if( handler.m_Input->m_Makes & Inp::Data::mD_R1 )
 		{
 			mdl.m_commands.SetMask( mINCREASE_GAP_RIGHT );
@@ -1342,6 +1355,9 @@ void CParkEditor::s_input_logic_code ( const Inp::Handler < CParkEditor >& handl
 			mdl.m_commands.SetMask( mDECREASE_GAP_LEFT );
 		}
 	#endif
+	#ifdef __PLAT_VITA__
+	}
+	#endif
 	
 #endif		// __PLAT_NGC__
 #ifdef __PLAT_NGC__
@@ -1357,7 +1373,24 @@ void CParkEditor::s_input_logic_code ( const Inp::Handler < CParkEditor >& handl
 		}
 	}
 #else
-#ifdef __PLAT_XBOX__
+#if defined( __PLAT_VITA__ )
+	// Vita : zoom Xbox (Noir = SELECT+R, Blanc = SELECT) en disposition Vita,
+	// PS2 (R1 / R2) en disposition DualShock (Sys/SIO/Vita/p_siodev.cpp).
+	if( !::SIO::g_vita_manette_ds )
+	{
+		if( handler.m_Input->m_Buttons & Inp::Data::mD_BLACK )
+			mdl.m_commands.SetMask( mZOOM_CAMERA_OUT );
+		if( handler.m_Input->m_Buttons & Inp::Data::mD_WHITE )
+			mdl.m_commands.SetMask( mZOOM_CAMERA_IN );
+	}
+	else
+	{
+		if( handler.m_Input->m_Buttons & Inp::Data::mD_R1 )
+			mdl.m_commands.SetMask( mZOOM_CAMERA_OUT );
+		if( handler.m_Input->m_Buttons & Inp::Data::mD_R2 )
+			mdl.m_commands.SetMask( mZOOM_CAMERA_IN );
+	}
+#elif defined( __PLAT_XBOX__ )
 	if( handler.m_Input->m_Buttons & Inp::Data::mD_BLACK )
 	{
 		mdl.m_commands.SetMask( mZOOM_CAMERA_OUT );

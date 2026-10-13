@@ -37,6 +37,7 @@
 #ifdef __PLAT_VITA__
 #include <sk/objects/skatercareer.h>
 #include "vita_log.h"
+namespace SIO { extern int g_vita_manette_ds; }	// Sys/SIO/Vita/p_siodev.cpp
 // ISSUE PUBLIQUE #6 « Can't manual » : trace du chemin complet d'un manual,
 // muette par defaut, armee par la commande « trk 1 » (p_siodev.cpp).
 //   [TRK] +Up / +Down ...      evenements de direction ENREGISTRES (ou ignores)
@@ -234,32 +235,20 @@ Script::CStruct *CTrickComponent::get_trigger_structure(Script::CStruct *p_struc
 {
 	Script::CStruct *p_trigger=NULL;
 #ifdef __PLAT_VITA__
-	// VITA : on se declare HARDWARE_XBOX (voir Sys/Config/Vita/p_config.cpp),
-	// mais c'est un choix qui porte sur le FORMAT DES DONNEES -- assets, audio,
-	// dossier de sauvegarde -- pas sur la MANETTE. Or ce test-ci aiguille les
-	// commandes.
-	//
-	// Consequence mesuree : « descendre du skate » cessait de repondre.
-	// switch_control.q:5 declare
-	//     SwitchControl_Trigger={ Trigger={ PressTwoAnyOrder,L1,R1,400 }
-	//                             Xbox_Trigger={ Press,Black,10 } ... }
-	// et le chemin XBox choisissait donc le bouton NOIR de la manette Xbox --
-	// que la Vita n'a pas, et que notre backend SIO ne remonte jamais
-	// (control_data[20] reste a zero). Le trigger L1+R1 n'etait meme plus
-	// consulte.
-	//
-	// La Vita a une manette de type DualShock : L1/R1, pas de Black/White. On
-	// prend donc le trigger par defaut, celui de la PS2.
-	//
-	// Portee du changement : un SEUL Xbox_Trigger existe dans tout le jeu
-	// (verifie sur Scripts/ : switch_control.q:5). Aucun autre trick n'est
-	// touche.
-	if (false)
-	{
+	// VITA : chemin XBox, comme le reste (HARDWARE_XBOX). De la v1.0 a la
+	// v1.1 on le court-circuitait pour prendre le Trigger PS2 L1+R1 de la
+	// descente de planche (le bouton Noir n'existait pas). Depuis que la
+	// manette Vita reprend la disposition Xbox (Sys/SIO/Vita/p_siodev.cpp :
+	// L = L1+L2, R = R1+R2, SELECT = Blanc, SELECT+R = Noir), le Xbox_Trigger
+	// est le bon : L1+R1 viendrait avec L+R en l'air, le spine transfer, et
+	// ferait descendre de la planche. Un seul Xbox_Trigger dans tout le jeu
+	// (switch_control.q:5). Disposition DualShock (manette a quatre
+	// gachettes) : Trigger de la PS2, descente sur L1+R1.
+	if ((Config::GetHardware()==Config::HARDWARE_XBOX) && !::SIO::g_vita_manette_ds)
 #else
 	if (Config::GetHardware()==Config::HARDWARE_XBOX)
-	{
 #endif
+	{
 		if (!p_struct->GetStructure(CRCD(0xce42ee1a,"XBox_Trigger"),&p_trigger))
 		{
 			p_struct->GetStructure(CRCD(0xe594f0a2,"Trigger"),&p_trigger,Script::ASSERT);

@@ -4370,7 +4370,44 @@ bool CVitaGeom::plat_render( Mth::Matrix *pRootMatrix,
 		// Depuis, le rayon SKINNE reel d'un personnage est mesure a ~44
 		// (centre/rayon des pieces) ; 150 couvre pose etendue et marge, et
 		// cesse de skinner les PNJ franchement hors champ.
-		const bool visible = NxVita::SphereVisible( rm[3][0], rm[3][1], rm[3][2], 150.0f );
+		//
+		// Tanks de Moscou : 150 ne couvre pas les GRANDS modeles rigides.
+		// veh_tank_ru.mdl s'etend de -139..139 x -23..95 x -245..244 autour
+		// de sa racine (coin le plus loin a ~297) : la caisse etait coupee
+		// des que sa racine sortait du champ de plus de 150 (bord de l'ecran,
+		// camera sur les rails du tank) alors que tourelle et canon
+		// (instances, dessiner_instances, sans tri) restaient affiches.
+		// [SOURCE] XBox/NX/instance.cpp:98 teste la sphere REELLE de la scene
+		// de l'instance. Ici : sphere centree sur la racine qui contient la
+		// boite du maillage (espace modele, CVitaMesh::BBox), jamais moins
+		// de 150 (personnages inchanges : boite de repos bien plus petite),
+		// a l'echelle de la racine.
+		float rayon = 150.0f;
+		if( mp_mesh )
+		{
+			const Mth::CBBox  &bb   = mp_mesh->BBox();
+			const Mth::Vector &bmin = bb.GetMin();
+			const Mth::Vector &bmax = bb.GetMax();
+			if(( bmin[X] <= bmax[X] ) && ( bmin[Y] <= bmax[Y] ) && ( bmin[Z] <= bmax[Z] ))
+			{
+				const float cx = 0.5f * ( bmin[X] + bmax[X] ), cy = 0.5f * ( bmin[Y] + bmax[Y] ),
+				            cz = 0.5f * ( bmin[Z] + bmax[Z] );
+				const float hx = 0.5f * ( bmax[X] - bmin[X] ), hy = 0.5f * ( bmax[Y] - bmin[Y] ),
+				            hz = 0.5f * ( bmax[Z] - bmin[Z] );
+				float r = sqrtf( cx * cx + cy * cy + cz * cz ) + sqrtf( hx * hx + hy * hy + hz * hz );
+				float ech = 1.0f;
+				for( int k = 0; k < 3; ++k )
+				{
+					const float e = sqrtf( rm[k][0] * rm[k][0] + rm[k][1] * rm[k][1] + rm[k][2] * rm[k][2] );
+					if( e > ech )
+						ech = e;
+				}
+				r *= ech;
+				if( r > rayon )
+					rayon = r;
+			}
+		}
+		const bool visible = NxVita::SphereVisible( rm[3][0], rm[3][1], rm[3][2], rayon );
 
 		// Combien d'instances par frame, combien cullees : c'est le compteur
 		// qui decide de la prochaine optimisation (frequence de skinning,

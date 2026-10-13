@@ -276,10 +276,13 @@ static unsigned int button_bit(const char *t)
         { "gauche", SCE_CTRL_LEFT },    { "left", SCE_CTRL_LEFT },
         { "droite", SCE_CTRL_RIGHT },   { "right", SCE_CTRL_RIGHT },
         { "start", SCE_CTRL_START },    { "select", SCE_CTRL_SELECT },
-        { "l1", SCE_CTRL_LTRIGGER },    { "l", SCE_CTRL_LTRIGGER },
-        { "r1", SCE_CTRL_RTRIGGER },    { "r", SCE_CTRL_RTRIGGER },
-        /* pave arriere (issue #30), memes bits que p_siodev.cpp */
-        { "l2", 0x01000000 },           { "r2", 0x02000000 },
+        /* bits de sceCtrlPeekBufferPositiveExt2 (p_siodev.cpp) : gachettes de
+           la Vita et L1/R1 d'une manette externe = SCE_CTRL_L1/R1, L2/R2 d'une
+           manette externe = SCE_CTRL_L2/R2 (alias de LTRIGGER/RTRIGGER) */
+        { "l1", SCE_CTRL_L1 },          { "l", SCE_CTRL_L1 },
+        { "r1", SCE_CTRL_R1 },          { "r", SCE_CTRL_R1 },
+        { "l2", SCE_CTRL_L2 },          { "r2", SCE_CTRL_R2 },
+        { "l3", SCE_CTRL_L3 },          { "r3", SCE_CTRL_R3 },
     };
     for (unsigned i = 0; i < sizeof(tab) / sizeof(tab[0]); ++i)
         if (!strcmp(t, tab[i].n))

@@ -23,10 +23,10 @@
 **  enfonce. Se tromper de sens donne un jeu ou toutes les touches sont      **
 **  appuyees en permanence -- symptome deroutant s'il en est.                **
 **                                                                          **
-**  La Vita n'a ni L2/R2 ni L3/R3. L2/R2 portent pourtant des figures      **
-**  (scripts skater : manualtricks, groundtricks, tricks, grindscripts) :   **
-**  ils passent par le pave tactile ARRIERE, moitie gauche = L2, moitie     **
-**  droite = R2 (issue #30). L3/R3 ne sont lus par aucun script de jeu.     **
+**  La Vita n'a que deux gachettes, comme la manette Xbox : on reprend sa  **
+**  disposition (L = L1+L2, R = R1+R2, SELECT = Blanc, SELECT+R = Noir),    **
+**  voir "DISPOSITION DES BOUTONS" plus bas. Aucune touche tactile.         **
+**  L3/R3 ne sont lus par aucun script de jeu.                              **
 *****************************************************************************/
 
 #include <core/defines.h>
@@ -58,6 +58,8 @@ extern int g_vita_trace_trk;	// trickcomponent.cpp, "trk" (#6)
 #include <gel/scripting/script.h>
 #include <gel/scripting/checksum.h>
 #include <gel/scripting/symboltable.h>
+#include <sk/parkeditor2/parked.h>
+#include <gfx/2d/screenelemman.h>
 #include "../../../Gfx/Vita/p_screenshot.h"
 #include <stdlib.h>
 #include <stdint.h>
@@ -89,6 +91,8 @@ namespace Nx { extern bool g_vita_gyr; extern bool g_vita_pad; }	// "gyr", "pad"
 namespace NxVita { extern bool g_vita_teinte_scene; void TeinteSceneReappliquer( void ); }	// "tsc" (#63)
 namespace NxVita { extern int g_vita_teinte_index; extern int g_vita_teinte_budget_us; extern bool g_vita_teinte_neon; }	// "tix" "tbu" "tvn" (#15)
 namespace NxVita { extern int g_vita_lots_glyphes; }	// "xgl" (#17)
+namespace Nx { extern int g_vita_police_x2; extern int g_vita_police_pixel; }	// "fnx" "fpx"
+namespace Nx { extern int g_vita_sprites_hd; }	// "hd" (p_NxTexture.cpp)
 namespace Nx { extern bool g_vita_vis; }
 namespace NxVita { extern bool g_vita_melange_opaques; }	// "bop" (banc #69, beige d'Hawaii)
 namespace NxVita { extern int g_vita_bfc; extern bool g_vita_zbias; void VitaListeReflets( float, float ); void VitaListeUVAnimes( void ); }
@@ -199,93 +203,6 @@ static unsigned char zone_morte( unsigned char v )
 }
 
 
-// Gachettes absentes de la Vita, rendues par le pave arriere. Bits hors de
-// ceux de sceCtrl : sur la console portable, SCE_CTRL_L2 n'est qu'un alias de
-// SCE_CTRL_LTRIGGER, c'est-a-dire du bouton L lui-meme.
-#define VITA_PAD_L2		0x01000000
-#define VITA_PAD_R2		0x02000000
-
-// Pave arriere : moitie gauche = L2, moitie droite = R2. Un doigt pose
-// n'importe ou suffit ; deux doigts donnent les deux.
-static unsigned int pave_arriere( void )
-{
-	static bool s_init = false;
-	static int  s_milieu = 960;
-	if( !s_init )
-	{
-		s_init = true;
-		sceTouchSetSamplingState( SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START );
-		SceTouchPanelInfo info;
-		if( sceTouchGetPanelInfo( SCE_TOUCH_PORT_BACK, &info ) >= 0 )
-			s_milieu = ( info.minAaX + info.maxAaX ) / 2;
-		VLOG( "PAD", "pave arriere : L2 a gauche, R2 a droite (x < %d)", s_milieu );
-	}
-	SceTouchData td;
-	if( sceTouchPeek( SCE_TOUCH_PORT_BACK, &td, 1 ) < 1 )
-		return 0;
-	unsigned int bits = 0;
-	for( unsigned int i = 0; i < td.reportNum; ++i )
-		bits |= ( td.report[i].x < s_milieu ) ? VITA_PAD_L2 : VITA_PAD_R2;
-	return bits;
-}
-
-// COINS BAS DE L'ECRAN TACTILE AVANT (#76, demande de l'humain) : les doigts
-// reposent en permanence sur le pave arriere, qui portait L1/R1 (rotations) --
-// le skater tournait tout seul. Coin bas gauche = L1, coin bas droit = R1, les
-// deux ensemble = L1+R1, la descente de planche : SwitchControl_Trigger =
-// { PressTwoAnyOrder L1 R1 400 } (airtricks.q, trickcomponent.cpp). Le pave
-// arriere ne fait plus rien ("tac 0" : ancien comportement).
-//
-// Un coin seul n'emet qu'apres TAC_GRACE images sans l'autre : poser les deux
-// doigts n'est jamais exactement simultane, et sans ce delai la descente
-// commencerait par un debut de rotation. Une fois la combinaison vue, plus de
-// L1/R1 tant que les deux doigts ne sont pas leves.
-int g_vita_tactile = 1;
-#define TAC_GRACE		3
-#define TAC_COIN_X		480		// 1/4 de 1920
-#define TAC_COIN_Y		760		// ~30 % du bas sur 1088
-enum { TAC_L1 = 1, TAC_R1 = 2, TAC_DESCENTE = 4 };
-
-static int ecran_coins( void )
-{
-	static bool s_init = false;
-	static int  s_attente = 0;		// images depuis le premier coin pose
-	static bool s_combo = false;
-	if( !s_init )
-	{
-		s_init = true;
-		sceTouchSetSamplingState( SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START );
-		VLOG( "PAD", "ecran avant : coin bas gauche L1, bas droit R1, les deux = descente (#76)" );
-	}
-	SceTouchData td;
-	bool g = false, d = false;
-	if( sceTouchPeek( SCE_TOUCH_PORT_FRONT, &td, 1 ) >= 1 )
-		for( unsigned int i = 0; i < td.reportNum; ++i )
-		{
-			const int x = td.report[i].x, y = td.report[i].y;	// 0..1919, 0..1087
-			if( y < TAC_COIN_Y )
-				continue;
-			if( x < TAC_COIN_X )			g = true;
-			else if( x >= 1920 - TAC_COIN_X )	d = true;
-		}
-	if( !g && !d )
-	{
-		s_attente = 0;
-		s_combo = false;
-		return 0;
-	}
-	if( g && d )
-		s_combo = true;
-	if( s_combo )
-		return TAC_DESCENTE;
-	if( s_attente < TAC_GRACE )
-	{
-		++s_attente;
-		return 0;
-	}
-	return g ? TAC_L1 : TAC_R1;
-}
-
 // RACCOURCIS DE TEST DU STORY MODE (#51) sur l'ECRAN TACTILE AVANT, que le jeu
 // n'utilise pas (SELECT n'arrive pas a l'application : intercepte avant).
 // Doigt maintenu 1 s dans le coin haut-droit : gagner la mission en cours ;
@@ -330,7 +247,62 @@ static void ecran_raccourcis( void )
 	VLOG( "DBG", "RACCOURCI tactile : %s", p_scr );
 }
 
-int g_vita_inv_gachettes = 1;	// #59/#60 : L/R = L2/R2, pave arriere = L1/R1
+// DISPOSITION DES BOUTONS = CELLE DE LA MANETTE XBOX (#21, #34, #7).
+//
+// THUG Xbox n'a que deux gachettes, et chacune vaut L1 ET L2 (resp. R1 ET
+// R2) : XBox/p_siodev.cpp:243-248 leve L2 au-dela de mi-course et L1 des le
+// premier quart -- un appui normal donne les deux. C'est la version dont
+// viennent nos donnees et nos scripts (la Vita se declare HARDWARE_XBOX) :
+//   L  = L1 + L2 : rotation gauche en l'air ; au sol, nollie (pression en
+//                  maintenant) ; revert a la reception ; a pied, recentrer la
+//                  camera (walking_control.q:505, Trigger_L2).
+//   R  = R1 + R2 : rotation droite ; au sol, switch ; revert ; a pied,
+//                  maintenir pour s'accrocher aux corniches et echelles.
+//   L+R en l'air  : spine transfer, acid drop, recuperation en vert
+//                  (skater.h:103, BREAK_SPINE_BUTTONS = L2 && R2).
+//   SELECT        = bouton BLANC : descendre / remonter sur la planche
+//                  (switch_control.q:5, Alt_Trigger) ; zoom avant de
+//                  l'editeur de parc ; pad_alt2 dans les menus.
+//   SELECT + R    = bouton NOIR : descente aussi (Xbox_Trigger), zoom arriere
+//                  de l'editeur de parc (EditorCameraComponent.cpp:476).
+//
+// DISPOSITION "DUALSHOCK" (reglage dualshock_layout=1, Vita Options
+// "Controller") pour qui a de vraies gachettes L2/R2 : PS TV ou manette
+// externe (L1, L2, R1, R2, L3, R3 separes), ou grips de gachettes poses sur
+// le pave ARRIERE (moitie gauche = L2, droite = R2 ; inactif en disposition
+// Vita, ou les doigts reposent dessus). Commandes et regles de la PS2 :
+// descente L1+R1 (Trigger, trickcomponent.cpp), spine transfer sur L2 OU R2
+// (skater.h). SELECT = Blanc reste valable (descente en un bouton).
+//
+// Plus aucun tactile en disposition Vita : avant v1.2, L/R portaient L2/R2 seuls, les rotations
+// etaient aux coins de l'ecran et la descente aux deux coins (#59, #60, #76,
+// #34) -- personne ne les trouvait. La descente n'est plus L1+R1
+// (trickcomponent.cpp reprend le Xbox_Trigger) : sinon L+R en l'air,
+// le spine transfer, ferait descendre de la planche.
+int g_vita_manette_ds = 0;
+
+// Pave arriere en disposition DualShock : moitie gauche = L2, droite = R2.
+static void pave_arriere( bool *p_l2, bool *p_r2 )
+{
+	static bool s_init = false;
+	static int  s_milieu = 960;
+	if( !s_init )
+	{
+		s_init = true;
+		sceTouchSetSamplingState( SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START );
+		SceTouchPanelInfo info;
+		if( sceTouchGetPanelInfo( SCE_TOUCH_PORT_BACK, &info ) >= 0 )
+			s_milieu = ( info.minAaX + info.maxAaX ) / 2;
+	}
+	SceTouchData td;
+	if( sceTouchPeek( SCE_TOUCH_PORT_BACK, &td, 1 ) < 1 )
+		return;
+	for( unsigned int i = 0; i < td.reportNum; ++i )
+	{
+		if( td.report[i].x < s_milieu )	*p_l2 = true;
+		else							*p_r2 = true;
+	}
+}
 
 // --- REGLAGES MANETTE DU PORT (#31, #2, #21) --------------------------------
 //
@@ -360,7 +332,7 @@ static bool s_inv_lx = false, s_inv_ly = false;
 static bool s_inv_rx = false, s_inv_ry = false;
 
 // Modele du fichier ecrit (absent au demarrage, ou bascule depuis le menu) :
-// sept %d, dans l'ordre de reglages_ecrire.
+// six %d, dans l'ordre de reglages_ecrire.
 static const char s_controls_modele[] =
 	"# THUG Vita - port settings, read when the game starts.\n"
 	"# Also editable in game: OPTIONS > Control Setup > Vita Options.\n"
@@ -372,14 +344,10 @@ static const char s_controls_modele[] =
 	"invert_right_x=%d\n"
 	"invert_right_y=%d\n"
 	"#\n"
-	"# 1: L/R buttons are L2/R2 (nollie, revert), spins L1/R1 are on the touch\n"
-	"#    surface below. 0: L/R buttons are L1/R1, L2/R2 are on the touch surface.\n"
-	"triggers_as_l2r2=%d\n"
-	"#\n"
-	"# 0: touch buttons are the bottom corners of the front touchscreen\n"
-	"#    (both corners = L1+R1, get off the board).\n"
-	"# 1: touch buttons are the rear touchpad, left half / right half.\n"
-	"touch_on_rear_pad=%d\n"
+	"# 0: PS Vita buttons, Xbox layout (L = L1+L2, R = R1+R2, SELECT = get off).\n"
+	"# 1: DualShock layout for PS TV / external pads / trigger grips: L1, L2, R1,\n"
+	"#    R2 apart, rear touchpad halves = L2/R2, L1+R1 = get off the board.\n"
+	"dualshock_layout=%d\n"
 	"#\n"
 	"# Display frame rate cap: 60, or 30 (steadier: every frame lasts 2 vsyncs).\n"
 	"framerate=%d\n";
@@ -392,8 +360,7 @@ static bool reglages_ecrire( void )
 	const int n = snprintf( buf, sizeof( buf ), s_controls_modele,
 	                        s_inv_lx ? 1 : 0, s_inv_ly ? 1 : 0,
 	                        s_inv_rx ? 1 : 0, s_inv_ry ? 1 : 0,
-	                        g_vita_inv_gachettes ? 1 : 0,
-	                        g_vita_tactile ? 0 : 1,
+	                        g_vita_manette_ds ? 1 : 0,
 	                        ( NxVita::g_vita_cadence == 30 ) ? 30 : 60 );
 	if(( n <= 0 ) || ( n >= (int)sizeof( buf )))
 		return false;
@@ -411,8 +378,13 @@ static void reglages_appliquer( const char *p_cle, int v )
 	else if( strcmp( p_cle, "invert_left_y" ) == 0 )		s_inv_ly = ( v != 0 );
 	else if( strcmp( p_cle, "invert_right_x" ) == 0 )		s_inv_rx = ( v != 0 );
 	else if( strcmp( p_cle, "invert_right_y" ) == 0 )		s_inv_ry = ( v != 0 );
-	else if( strcmp( p_cle, "triggers_as_l2r2" ) == 0 )		g_vita_inv_gachettes = ( v != 0 );
-	else if( strcmp( p_cle, "touch_on_rear_pad" ) == 0 )	g_vita_tactile = ( v == 0 );
+	else if( strcmp( p_cle, "dualshock_layout" ) == 0 )		g_vita_manette_ds = ( v != 0 );
+	// Cles des versions 1.0-1.1 (disposition tactile), sans objet depuis la
+	// disposition Xbox : ignorees sans bruit, le fichier est reecrit sans elles
+	// au prochain changement de reglage.
+	else if(( strcmp( p_cle, "triggers_as_l2r2" ) == 0 ) || ( strcmp( p_cle, "touch_on_rear_pad" ) == 0 )
+	        || ( strcmp( p_cle, "get_off_board_select" ) == 0 ))
+		;
 	else if( strcmp( p_cle, "framerate" ) == 0 )			NxVita::FixerCadence(( v == 30 ) ? 30 : 60 );
 	else VLOG( "PAD", "controls.txt : cle inconnue '%s'", p_cle );
 }
@@ -465,10 +437,8 @@ static void reglages_lire( void )
 			break;
 		p = fin + 1;
 	}
-	VLOG( "PAD", "controls.txt : inversion lx=%d ly=%d rx=%d ry=%d, L/R=%s, tactile=%s, %d images/s",
-	      s_inv_lx, s_inv_ly, s_inv_rx, s_inv_ry,
-	      g_vita_inv_gachettes ? "L2/R2" : "L1/R1",
-	      g_vita_tactile ? "coins avant" : "pave arriere",
+	VLOG( "PAD", "controls.txt : inversion lx=%d ly=%d rx=%d ry=%d, disposition %s, %d images/s",
+	      s_inv_lx, s_inv_ly, s_inv_rx, s_inv_ry, g_vita_manette_ds ? "DualShock" : "Vita (Xbox)",
 	      ( NxVita::g_vita_cadence == 30 ) ? 30 : 60 );
 }
 
@@ -483,8 +453,7 @@ int VitaReglageValeur( const char *p_cle )
 	if( strcmp( p_cle, "invert_left_y" ) == 0 )		return s_inv_ly ? 1 : 0;
 	if( strcmp( p_cle, "invert_right_x" ) == 0 )	return s_inv_rx ? 1 : 0;
 	if( strcmp( p_cle, "invert_right_y" ) == 0 )	return s_inv_ry ? 1 : 0;
-	if( strcmp( p_cle, "triggers_as_l2r2" ) == 0 )	return g_vita_inv_gachettes ? 1 : 0;
-	if( strcmp( p_cle, "touch_on_rear_pad" ) == 0 )	return g_vita_tactile ? 0 : 1;
+	if( strcmp( p_cle, "dualshock_layout" ) == 0 )	return g_vita_manette_ds ? 1 : 0;
 	if( strcmp( p_cle, "framerate" ) == 0 )			return ( NxVita::g_vita_cadence == 30 ) ? 30 : 60;
 	return -1;
 }
@@ -520,8 +489,8 @@ static unsigned int nom_vers_bouton( const char *p_mot )
 		{ "croix",    SCE_CTRL_CROSS },    { "rond",     SCE_CTRL_CIRCLE },
 		{ "carre",    SCE_CTRL_SQUARE },   { "triangle", SCE_CTRL_TRIANGLE },
 		{ "start",    SCE_CTRL_START },    { "select",   SCE_CTRL_SELECT },
-		{ "l1",       SCE_CTRL_LTRIGGER }, { "r1",       SCE_CTRL_RTRIGGER },
-		{ "l2",       VITA_PAD_L2 },       { "r2",       VITA_PAD_R2 },
+		{ "l1",       SCE_CTRL_L1 },       { "r1",       SCE_CTRL_R1 },	// bits de
+		{ "l2",       SCE_CTRL_L2 },       { "r2",       SCE_CTRL_R2 },	// ...Ext2
 		{ NULL, 0 }
 	};
 	for( int i = 0; table[i].nom; ++i )
@@ -1428,17 +1397,6 @@ static void injection_analyser( char *buf )
 			p += 3;
 			continue;
 		}
-		// "tac 0/1" : L1/R1 aux coins bas de l'ecran avant, les deux = descente (#76).
-		else if( strncmp( p, "tac", 3 ) == 0 )
-		{
-			const char *q = p + 3;
-			while( *q == ' ' ) ++q;
-			g_vita_tactile = atoi( q );
-			VLOG( "PAD", "coins tactiles avant (#76) : %d", g_vita_tactile );
-			while( *q && *q != ' ' && *q != '\n' && *q != '\r' ) ++q;
-			p = (char *)q;
-			continue;
-		}
 		// "trk 0/1" : trace du chemin d'un manual, Up/Down -> file -> declenchement
 		// -> equilibre (issue #6, trickcomponent.cpp). Muette par defaut.
 		else if( strncmp( p, "trk", 3 ) == 0 )
@@ -1447,17 +1405,6 @@ static void injection_analyser( char *buf )
 			while( *q == ' ' ) ++q;
 			g_vita_trace_trk = atoi( q );
 			VLOG( "TRK", "trace des manuals (#6) : %d", g_vita_trace_trk );
-			while( *q && *q != ' ' && *q != '\n' && *q != '\r' ) ++q;
-			p = (char *)q;
-			continue;
-		}
-		// "inv 0/1" : gachettes L/R = L2/R2 et pave arriere = L1/R1 (#59, #60).
-		else if( strncmp( p, "inv", 3 ) == 0 )
-		{
-			const char *q = p + 3;
-			while( *q == ' ' ) ++q;
-			g_vita_inv_gachettes = atoi( q );
-			VLOG( "PAD", "gachettes inversees : %d", g_vita_inv_gachettes );
 			while( *q && *q != ' ' && *q != '\n' && *q != '\r' ) ++q;
 			p = (char *)q;
 			continue;
@@ -1491,6 +1438,30 @@ static void injection_analyser( char *buf )
 				      gm->GetCurrentChapter(), gm->GetCurrentStage(), n, na, nw, nl_ );
 			}
 			p += tous ? 9 : 5;
+			continue;
+		}
+		// "hd 0/1" : sprites HD du pack THUG Pro (prochain chargement).
+		else if(( strncmp( p, "hd ", 3 ) == 0 ))
+		{
+			const char *q = p + 3;
+			while( *q == ' ' ) ++q;
+			Nx::g_vita_sprites_hd = atoi( q );
+			VLOG( "TEX", "sprites HD : %d", Nx::g_vita_sprites_hd );
+			while( *q && *q != ' ' && *q != '\n' && *q != '\r' ) ++q;
+			p = (char *)q;
+			continue;
+		}
+		// "fnx 0/1" : police HD (pack THUG Pro) ; "fpx 0/1" : glyphes
+		// cales au pixel (p_NxFont.cpp, nettete du texte, 2026-10-13).
+		else if(( strncmp( p, "fnx", 3 ) == 0 ) || ( strncmp( p, "fpx", 3 ) == 0 ))
+		{
+			const bool x2 = ( p[1] == 'n' );
+			const char *q = p + 3;
+			while( *q == ' ' ) ++q;
+			( x2 ? Nx::g_vita_police_x2 : Nx::g_vita_police_pixel ) = atoi( q );
+			VLOG( "FNT", "police : planche x2 %d, calage pixel %d", Nx::g_vita_police_x2, Nx::g_vita_police_pixel );
+			while( *q && *q != ' ' && *q != '\n' && *q != '\r' ) ++q;
+			p = (char *)q;
 			continue;
 		}
 		// "osp 0/1" : derniere pose d'os des vehicules (#48).
@@ -2655,6 +2626,9 @@ Device::Device( int index, int port, int slot )
 	// Mode analogique large : sans cet appel, les sticks restent centres et
 	// le skater ne bougera jamais. C'est le piege classique de sceCtrl.
 	sceCtrlSetSamplingMode( SCE_CTRL_MODE_ANALOG_WIDE );
+	// Les lectures "Ext" (sceCtrlPeekBufferPositiveExt2, read_data) ont leur
+	// propre mode : sans lui, sticks figes au centre.
+	sceCtrlSetSamplingModeExt( SCE_CTRL_MODE_ANALOG_WIDE );
 
 	// Reglages du port (#31) : une seule lecture, quel que soit le nombre de
 	// Device crees (un par port/slot).
@@ -2745,7 +2719,10 @@ void Device::read_data( void )
 
 	SceCtrlData pad;
 	memset( &pad, 0, sizeof( pad ));
-	if( sceCtrlPeekBufferPositive( 0, &pad, 1 ) < 0 )
+	// Ext2 : gachettes de la Vita en SCE_CTRL_L1/R1, et pour une manette
+	// DualShock (PS TV, ds3vita/ds4vita...) L1/R1, L2/R2 (= LTRIGGER/
+	// RTRIGGER), L3/R3 separes. Le simple PeekBufferPositive confond tout.
+	if( sceCtrlPeekBufferPositiveExt2( 0, &pad, 1 ) < 0 )
 	{
 		m_data.m_valid = false;
 		m_plugged_in   = false;
@@ -2759,9 +2736,6 @@ void Device::read_data( void )
 	if( s_inv_rx ) pad.rx = inverser_axe( pad.rx );
 	if( s_inv_ry ) pad.ry = inverser_axe( pad.ry );
 
-	if( !g_vita_tactile )
-		pad.buttons |= pave_arriere();
-	const int tac = g_vita_tactile ? ecran_coins() : 0;
 
 	// Touches injectees a distance : elles s'ajoutent a la manette reelle.
 	const unsigned int hw  = pad.buttons;
@@ -2847,11 +2821,8 @@ void Device::read_data( void )
 			delete p_params;
 			VLOG( "DBG", "RACCOURCI manette : %s", p_scr );
 		}
-		else if( appui & SCE_CTRL_SELECT )
-		{
-			NxVita::RequestScreenshot();
-			VLOG( "DBG", "capture demandee (SELECT)" );
-		}
+		// (Plus de capture sur SELECT : c'est le bouton Blanc, descente de
+		// planche. Captures : vctl.py shot / usb.)
 		s_avant = hw;
 	}
 #endif
@@ -2906,28 +2877,52 @@ void Device::read_data( void )
 	unsigned char b2 = 0xFF;
 	unsigned char b3 = 0xFF;
 
-	if( pad.buttons & SCE_CTRL_SELECT )		b2 &= ~( 1 << 0 );
+	// Disposition Xbox (voir l'en-tete des reglages du port) :
+	// SELECT = Blanc, SELECT + R = Noir ; L = L1 + L2, R = R1 + R2. Le bit
+	// SELECT du DualShock n'est plus emis : sur la table de menus "xbox" il
+	// ne valait que pad_back, que ROND fait aussi.
+	const bool l1 = ( pad.buttons & SCE_CTRL_L1 ) != 0, r1 = ( pad.buttons & SCE_CTRL_R1 ) != 0;
+	bool       l2 = ( pad.buttons & SCE_CTRL_L2 ) != 0, r2 = ( pad.buttons & SCE_CTRL_R2 ) != 0;
+	const bool pg = l1 || l2, pd = r1 || r2;		// disposition Vita : une gachette
+	const bool sel = ( pad.buttons & SCE_CTRL_SELECT ) != 0;
+	const bool noir  = sel && pd;
+	const bool blanc = sel && !pd;
+	if( g_vita_manette_ds )
+		pave_arriere( &l2, &r2 );
 	if( pad.buttons & SCE_CTRL_START )		b2 &= ~( 1 << 3 );
 	if( pad.buttons & SCE_CTRL_UP )			b2 &= ~( 1 << 4 );
 	if( pad.buttons & SCE_CTRL_RIGHT )		b2 &= ~( 1 << 5 );
 	if( pad.buttons & SCE_CTRL_DOWN )		b2 &= ~( 1 << 6 );
 	if( pad.buttons & SCE_CTRL_LEFT )		b2 &= ~( 1 << 7 );
-
-	// GACHETTES INVERSEES (#59, #60, decision de l'humain) : sur la Vita, les
-	// gachettes L/R portent L2/R2 (nollie, revert/spine transfer -- les gestes
-	// qui comptent ; la descente de planche est L1+R1, voir #76) et le pave arriere L1/R1 (rotations).
-	// Avant : L1/R1 aux gachettes, et les doigts poses au dos de la console
-	// envoyaient L2+R2 = descente de planche intempestive. "inv 0/1".
+	if( g_vita_manette_ds )
 	{
-		const bool pg = ( pad.buttons & SCE_CTRL_LTRIGGER ) != 0, pd = ( pad.buttons & SCE_CTRL_RTRIGGER ) != 0;
-		const bool ag = ( pad.buttons & VITA_PAD_L2 ) != 0,       ad = ( pad.buttons & VITA_PAD_R2 ) != 0;
-		const bool l2 = g_vita_inv_gachettes ? pg : ag, r2 = g_vita_inv_gachettes ? pd : ad;
-		const bool l1 = g_vita_inv_gachettes ? ag : pg, r1 = g_vita_inv_gachettes ? ad : pd;
-		// #76 : les deux coins = L1+R1 (descente).
-		if( l2 ) b3 &= ~( 1 << 0 );
-		if( r2 ) b3 &= ~( 1 << 1 );
-		if( l1 || ( tac & ( TAC_L1 | TAC_DESCENTE ))) b3 &= ~( 1 << 2 );
-		if( r1 || ( tac & ( TAC_R1 | TAC_DESCENTE ))) b3 &= ~( 1 << 3 );
+		// DualShock : chaque bouton a sa place, comme sur PS2.
+		if( l2 )			b3 &= ~( 1 << 0 );
+		if( r2 && !sel )	b3 &= ~( 1 << 1 );
+		if( l1 )			b3 &= ~( 1 << 2 );
+		if( r1 && !sel )	b3 &= ~( 1 << 3 );
+		if( pad.buttons & SCE_CTRL_L3 )	b2 &= ~( 1 << 1 );
+		if( pad.buttons & SCE_CTRL_R3 )	b2 &= ~( 1 << 2 );
+	}
+	else if( Ed::CParkEditor::Instance() && Ed::CParkEditor::Instance()->EditingCustomPark())
+	{
+		// EDITEUR DE PARC, comme le pilote Xbox (XBox/p_siodev.cpp:204-232) :
+		// gauche = L2 (descendre le sol, reduire l'ecart droit), droite = L1
+		// (monter, agrandir), ou R2 si le clavier de nom de gap est ouvert.
+		// Le zoom et l'ecart gauche passent par Blanc/Noir = SELECT/SELECT+R
+		// (ParkEd.cpp, branche Xbox). Sans ce cas, L = L1+L2 montait et
+		// descendait a la fois.
+		bool clavier = false;
+		Front::CScreenElementManager *p_sem = Front::CScreenElementManager::Instance();
+		if( p_sem && p_sem->GetElement( Script::GenerateCRC( "keyboard_anchor" ), Front::CScreenElementManager::DONT_ASSERT ))
+			clavier = true;
+		if( pg )			b3 &= ~( 1 << 0 );					// L2
+		if( pd && !sel )	b3 &= ~( clavier ? ( 1 << 1 ) : ( 1 << 2 ));	// R2 ou L1
+	}
+	else
+	{
+		if( pg )			b3 &= ~(( 1 << 0 ) | ( 1 << 2 ));	// L2 + L1
+		if( pd && !sel )	b3 &= ~(( 1 << 1 ) | ( 1 << 3 ));	// R2 + R1
 	}
 	if( pad.buttons & SCE_CTRL_TRIANGLE )	b3 &= ~( 1 << 4 );
 	if( pad.buttons & SCE_CTRL_CIRCLE )		b3 &= ~( 1 << 5 );
@@ -2954,6 +2949,13 @@ void Device::read_data( void )
 	for( int i = 8; i <= 20; ++i )
 		m_data.m_control_data[i] = 0;
 
+	// Noir (bit 0) et Blanc (bit 1) de la manette Xbox, comme
+	// XBox/p_siodev.cpp:287-295 ; inpserv.cpp:192 les place en bits 16/17.
+	if( noir )
+		m_data.m_control_data[20] |= ( 1 << 0 );
+	if( blanc )
+		m_data.m_control_data[20] |= ( 1 << 1 );
+
 	// Croix directionnelle en pression, attendue par certains menus.
 	if( pad.buttons & SCE_CTRL_RIGHT )	m_data.m_control_data[8]  = 0xFF;
 	if( pad.buttons & SCE_CTRL_LEFT )	m_data.m_control_data[9]  = 0xFF;
@@ -2962,7 +2964,7 @@ void Device::read_data( void )
 
 	uint32 pressed = 0xFFFF ^ (( m_data.m_control_data[2] << 8 )
 	                          | m_data.m_control_data[3] );
-	m_pressed = ( pressed != 0 );
+	m_pressed = ( pressed != 0 ) || blanc || noir;
 
 	m_start_or_a_pressed = ( pad.buttons & ( SCE_CTRL_START | SCE_CTRL_CROSS )) != 0;
 

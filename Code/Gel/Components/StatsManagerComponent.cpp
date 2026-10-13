@@ -23,6 +23,9 @@
 #include <gel/scripting/utils.h>
 
 #include <core/allmath.h>
+#ifdef __PLAT_VITA__
+#include "vita_log.h"
+#endif
 #include <core/math/math.h>
 #include <core/flags.h>
 #include <sk/modules/skate/score.h>
@@ -393,6 +396,19 @@ void CStatsManagerComponent::Update()
                     air_combo_score = ((current_base - vert_start_base) * (current_mult - vert_start_mult));
                     air_combo_mult = (current_mult - vert_start_mult);
                     vert_set = 2;
+#ifdef __PLAT_VITA__
+                    // Retour joueur (objectif "Air transfer N feet", goaltype vertdist) :
+                    // distance HORIZONTALE entre le debut et la fin du drapeau VERT_AIR,
+                    // mesuree plus bas. Etat AIR ici = vert rompu en vol (pousser vers
+                    // l'avant, transfert sans cible) : l'air continue en saut ordinaire.
+                    {
+                        Mth::Vector d = vert_end_pos - vert_start_pos;
+                        d[1] = 0.0f;
+                        VLOG( "STAT", "fin d'air vert : %.1f pieds a l'horizontale, etat %d%s",
+                              sqrtf( d[0] * d[0] + d[2] * d[2] ) / 12.0f, (int)state,
+                              ( state == AIR ) ? " (vert rompu en vol)" : "" );
+                    }
+#endif
                 }
 
                 // air combo messages

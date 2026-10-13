@@ -31,8 +31,9 @@ better: which level, what you were doing, a photo if you can.
 ## What you need
 
 - A PS Vita running custom firmware (HENkaku / Enso). If yours isn't set up
-  yet, [vita.hacks.guide](https://vita.hacks.guide) walks you through it. The
-  PS TV isn't supported: some moves use the touchscreen.
+  yet, [vita.hacks.guide](https://vita.hacks.guide) walks you through it.
+  PS TV and external controllers (DS3, DS4, DualSense with a plugin) work with
+  the DualShock layout, see *Vita Options*.
 - [VitaShell](https://github.com/TheOfficialFloW/VitaShell) to install the game
   and copy files.
 - `libshacccg.suprx` in `ur0:data/`. The game compiles its shaders on the
@@ -80,23 +81,22 @@ ones). That's normal.
 
 ## Controls
 
-The Vita has no L2/R2, which the game uses a lot. Here's where everything went:
-
-| PS Vita | Game (PS2 name) | What it does |
+| PS Vita | Xbox pad | What it does |
 |---|---|---|
 | Left stick / D-pad | | Steer, walk, balance |
 | ✕ | ✕ | Ollie, jump |
 | □ | □ | Flip tricks |
 | ○ | ○ | Grab tricks |
 | △ | △ | Grind, lip tricks |
-| **L** | L2 | Nollie (tap while rolling) |
-| **R** | R2 | Switch stance (tap while rolling), reverts, spine transfers |
-| **Bottom-left corner** of the screen | L1 | Spin left |
-| **Bottom-right corner** of the screen | R1 | Spin right. Off the board: hold it to grab ledges and ladders (push the left stick up to climb) |
-| **Both bottom corners** at once | L1 + R1 | Get off the board, or back on |
+| **L** | Left trigger (L1 + L2) | Spin left in the air. On the ground: nollie (tap again for pressure). Revert when landing on a ramp. On foot: reset the camera |
+| **R** | Right trigger (R1 + R2) | Spin right in the air. On the ground: switch stance. Revert when landing on a ramp. On foot: hold to grab ledges and ladders (push the left stick up to climb) |
+| **L + R** in the air | | Spine transfer, acid drop, vert recovery |
+| **SELECT** | White | Get off the board, or back on (caveman) |
+| **SELECT + R** | Black | Create-a-Park: zoom out (SELECT alone zooms in) |
 | START | START | Pause menu |
 
-The rear touchpad does nothing by default, so you can rest your fingers on it.
+It's the Xbox layout: the Xbox pad also has only two triggers, and each one
+does both jobs. The touchscreen and the rear touchpad are not used.
 
 ### Vita Options
 
@@ -106,11 +106,10 @@ in `ux0:data/thug/controls.txt`, which you can also edit by hand:
 
 | Setting | What it does |
 |---|---|
-| `invert_left_x`, `invert_left_y` | Invert the left stick (skater and menus) |
-| `invert_right_x`, `invert_right_y` | Invert the right stick (camera) |
-| `touch_on_rear_pad=1` | Put L1/R1 (spins) on the rear touchpad, left half / right half, instead of the screen corners |
-| `triggers_as_l2r2=0` | Swap the layout: L/R buttons become L1/R1, and L2/R2 go to the touch area |
-| `framerate=30` | Lock the game to 30 fps (steadier in the heaviest levels). Default 60 |
+| Controller / `dualshock_layout=1` | **DualShock** layout, for a PS TV, an external DS3/DS4/DualSense pad, or trigger grips on the rear touchpad: L1, L2, R1 and R2 are separate buttons like on PS2 (L1/R1 spin, L2 nollie, R2 switch/revert, L1+R1 gets off the board, L2 or R2 in the air for spine transfers). The rear touchpad halves act as L2/R2. Default: PS Vita |
+| Camera Up/Down, Camera Left/Right / `invert_right_y`, `invert_right_x` | Invert the right stick (camera) |
+| Skater Up/Down / `invert_left_y` | Invert the left stick up/down (also `invert_left_x` in the file) |
+| Frame Rate / `framerate=30` | Lock the game to 30 fps (steadier in the heaviest levels). Default 60 |
 
 Delete the file to get the defaults back.
 
@@ -136,7 +135,11 @@ then rescan your games.
 
 - **Videos.** The intro, pro and sponsor videos play from the `movies` folder.
   Press START or ✕ to skip one.
-- **No online play.** The game's online service shut down years ago.
+- **HD HUD.** The score panel, special bar, balance meter, stance icons, trick
+  text and menu theme icons use the HD redraws made by the THUG Pro team. Same
+  layout as the original, just sharper. The other fonts are the original ones.
+- **No online or LAN play.** The game's online service shut down years ago,
+  and LAN isn't supported on the Vita.
 - A few small visual details can still differ from the Xbox version. If you
   spot one, an issue with a photo helps a lot.
 
@@ -188,12 +191,23 @@ THUG_DATA=/path/to/data python3 vita/livearea/generer.py
 
 It needs an internet connection the first time, to fetch a font.
 
+The HD HUD is made from the THUG Pro files, also outside the repository. With
+a THUG Pro install, generate it once; CMake then packs it into the VPK (it
+looks in `~/vita-build/thug-hd`, or set `-DTHUG_HD_DIR=...`; without it the
+VPK uses the original graphics):
+
+```
+python3 vita/tools/thugpro_hd.py /path/to/data /path/to/THUGPro ~/vita-build/thug-hd
+```
+
 ## Credits
 
 - Neversoft and Activision made the game. This project isn't affiliated with
   or endorsed by them, and all trademarks belong to their owners.
 - [kisak-thug](https://github.com/SwagSoftware/kisak-thug), the PC project this
   port builds on.
+- The [THUG Pro](https://thugpro.com) team for the HD redraws of the HUD and
+  theme icons.
 - [FFmpeg](https://ffmpeg.org) (LGPL 2.1+) for the Bink video decoder.
 - [vitaGL](https://github.com/Rinnegatamante/vitaGL) by Rinnegatamante, and
   the [vitasdk](https://vitasdk.org) team.

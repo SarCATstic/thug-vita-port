@@ -79,14 +79,31 @@ static SceUID			s_thread = -1;
 /* Double tampon : sceAudioOutOutput lit le tampon PENDANT qu'il joue (#30). */
 static short			*s_sortie_base = NULL;
 
+static volatile int		s_consommateur;				/* thread de sortie en marche */
+
 static void audio_cb( void *, const short *pcm, int n )
 {
 	/* Producteur : le decodeur. S'il prend trop d'avance (anneau plein), on
-	 * attend le consommateur -- c'est ce qui regule aussi la lecture. */
+	 * attend le consommateur -- c'est ce qui regule aussi la lecture.
+	 *
+	 * GEL (2026-10-13, mode demo, dump du chien de garde) : sans
+	 * consommateur (port MAIN ou thread refuse -> film muet), l'anneau se
+	 * remplissait en 2 s et le thread principal attendait ICI pour toujours.
+	 * Sans consommateur, le son est jete ; et une attente de plus de 500 ms
+	 * abandonne le reste du paquet plutot que de figer le jeu. */
+	if( !s_consommateur )
+		return;
+	int attente_us = 0;
 	for( int i = 0; i < n; )
 	{
 		int libre = ANNEAU - ( s_ecrit - s_lu );
-		if( libre <= 0 ) { sceKernelDelayThread( 2000 ); continue; }
+		if( libre <= 0 )
+		{
+			if(( attente_us += 2000 ) > 500000 || !s_consommateur )
+				return;
+			sceKernelDelayThread( 2000 );
+			continue;
+		}
 		int k = n - i < libre ? n - i : libre;
 		for( int j = 0; j < k; ++j )
 		{
@@ -271,6 +288,7 @@ void PMovies_PlayMovie( const char *pName )
 
 	s_ecrit = s_lu = s_joues = 0;
 	s_fin_audio = 0;
+	s_consommateur = 0;
 	bool avec_son = false;
 	if(( info.sample_rate > 0 ) && ( info.channels == 2 ))
 	{
@@ -288,10 +306,14 @@ void PMovies_PlayMovie( const char *pName )
 			                                                        SCE_AUDIO_VOLUME_FLAG_R_CH ), vols );
 			// Priorite au-dessus du thread principal, comme thug_sfx.
 			s_thread = sceKernelCreateThread( "thug_fmv_snd", thread_audio, 64, 0x4000, 0, 0, NULL );
+			s_consommateur = 1;		// avant le demarrage : le thread lit l'anneau aussitot
 			if(( s_thread >= 0 ) && ( sceKernelStartThread( s_thread, 0, NULL ) >= 0 ))
 				avec_son = true;
 			else
+			{
+				s_consommateur = 0;
 				VLOG( "FMV", "thread audio refuse (0x%08x) : film muet", s_thread );
+			}
 		}
 		else
 			VLOG( "FMV", "port audio MAIN refuse (0x%08x) : film muet", s_port );
@@ -359,6 +381,7 @@ void PMovies_PlayMovie( const char *pName )
 	      n_dec, n_dec ? t_dec / 1000.0 / n_dec : 0.0, t_dec_max / 1000.0, n_sautees );
 
 	s_fin_audio = 1;
+	s_consommateur = 0;
 	if( s_thread >= 0 ) { sceKernelWaitThreadEnd( s_thread, NULL, NULL ); s_thread = -1; }
 	if( s_port >= 0 )   { sceAudioOutReleasePort( s_port ); s_port = -1; }
 	vita_bink_close( b );

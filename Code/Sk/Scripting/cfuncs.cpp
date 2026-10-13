@@ -12471,6 +12471,14 @@ bool ScriptGotoXboxDashboard( Script::CStruct* pParams, Script::CScript* pScript
 
 bool ScriptSystemLinkEnabled( Script::CStruct* pParams, Script::CScript* pScript )
 {
+#ifdef __PLAT_VITA__
+	// Pas de netplay en v1 (GameSpy exclu, sceNet non initialise en build
+	// public). On prend le chemin prevu par le jeu pour une Xbox sans cable
+	// reseau : system_link_main_menu_exit (skateshop.qb) ne fait rien si cette
+	// fonction rend false, et l'entree System Link Play reste sans effet.
+	// Avant : Host Game -> StartServer/JoinServer -> plantage (issue LAN).
+	return false;
+#endif
 #ifdef __PLAT_XBOX__
 	DWORD result;
 	

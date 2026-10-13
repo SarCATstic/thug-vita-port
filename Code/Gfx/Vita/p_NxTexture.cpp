@@ -28,6 +28,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <ctype.h>
+#include <sys/stat.h>
 
 // Pool circulaire de vitaGL (vgl.c:132), exporte par la bibliotheque mais
 // absent du header public. Voir envoi_dxt_prepare plus bas.
@@ -823,6 +826,64 @@ static bool is_power_of_two( uint32 v )
 }
 
 
+// SPRITE HD (pack THUG Pro, vita/tools/thugpro_hd.py) :
+// <pack>/<nom en minuscules>.hd (pack = ux0:data/thug/hd ou app0:hd) = b'THD1', u32 k, u32 largeur,
+// u32 hauteur, RGBA pret a envoyer, rangee comme la planche d'origine
+// (zone utile au meme endroit, x k). Acceptee seulement si largeur = k x
+// largeur d'origine et hauteur = k x hauteur d'origine. "hd 0" : ignore le
+// pack (prend effet au prochain chargement des sprites).
+int g_vita_sprites_hd = 1;
+
+static unsigned char *sprite_hd( const char *p_texture_name, uint32 w, uint32 h, int *p_k )
+{
+	if( !g_vita_sprites_hd )
+		return NULL;
+	// Ou est le pack : ux0:data/thug/hd (remplacement par le joueur ou en
+	// dev) sinon app0:hd (livre dans le VPK). Un seul stat, au premier sprite.
+	static const char *sp_pack = NULL;
+	static bool s_cherche = false;
+	if( !s_cherche )
+	{
+		s_cherche = true;
+		struct stat st;
+		if( stat( "ux0:data/thug/hd", &st ) == 0 )		sp_pack = "ux0:data/thug/hd/";
+		else if( stat( "app0:hd", &st ) == 0 )			sp_pack = "app0:hd/";
+		VLOG( "TEX", "pack HD : %s", sp_pack ? sp_pack : "absent" );
+	}
+	if( !sp_pack )
+		return NULL;
+	const char *p_base = p_texture_name;
+	for( const char *q = p_texture_name; *q; ++q )
+		if(( *q == '\\' ) || ( *q == '/' ))
+			p_base = q + 1;
+	char path[160];
+	int n = snprintf( path, sizeof( path ), "%s", sp_pack );
+	for( const char *q = p_base; *q && ( n < (int)sizeof( path ) - 4 ); ++q )
+		path[n++] = (char)tolower( (unsigned char)*q );
+	path[n] = 0;
+	strncat( path, ".hd", sizeof( path ) - strlen( path ) - 1 );
+	FILE *f = fopen( path, "rb" );
+	if( !f )
+		return NULL;
+	unsigned int hd[4] = { 0, 0, 0, 0 };
+	unsigned char *p = NULL;
+	if(( fread( hd, 4, 4, f ) == 4 ) && ( memcmp( hd, "THD1", 4 ) == 0 )
+	   && ( hd[1] >= 2 ) && ( hd[1] <= 8 ) && ( hd[2] == hd[1] * w ) && ( hd[3] == hd[1] * h ))
+	{
+		p = (unsigned char *)malloc( (size_t)hd[2] * hd[3] * 4 );
+		if( p && ( fread( p, 4, (size_t)hd[2] * hd[3], f ) != (size_t)hd[2] * hd[3] ))
+		{
+			free( p );
+			p = NULL;
+		}
+	}
+	fclose( f );
+	VLOG( "TEX", "sprite HD '%s' %s (x%u)", p_base, p ? "charge" : "REFUSE", hd[1] );
+	if( p )
+		*p_k = (int)hd[1];
+	return p;
+}
+
 bool LoadVitaImgInto( CVitaTexture *p_texture, const char *p_texture_name,
                       GLuint reuse_tex )
 {
@@ -939,6 +1000,14 @@ bool LoadVitaImgInto( CVitaTexture *p_texture, const char *p_texture_name,
 		argb_to_rgba( p_rgba, num_pixels );
 	}
 
+	// Image HD du pack THUG Pro si presente (voir sprite_hd) : memes
+	// fractions d'UV, taille declaree d'ORIGINE (SetGLTexture... plus bas),
+	// donc meme mise en page ; seule l'image envoyee au GPU change.
+	int hd_k = 0;
+	unsigned char *p_hd = sprite_hd( p_texture_name, width, height, &hd_k );
+	const GLsizei gw = (GLsizei)( width * ( hd_k ? hd_k : 1 ));
+	const GLsizei gh = (GLsizei)( height * ( hd_k ? hd_k : 1 ));
+
 	GLuint gl_tex = reuse_tex;
 	if( !gl_tex )
 		glGenTextures( 1, &gl_tex );
@@ -948,8 +1017,9 @@ bool LoadVitaImgInto( CVitaTexture *p_texture, const char *p_texture_name,
 	// Sur un identifiant existant, glTexImage2D respecifie entierement la
 	// texture (dimensions et format compris) : l'ancienne image, DXT ou non,
 	// est remplacee.
-	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)width, (GLsizei)height, 0,
-	              GL_RGBA, GL_UNSIGNED_BYTE, p_rgba );
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, gw, gh, 0,
+	              GL_RGBA, GL_UNSIGNED_BYTE, p_hd ? p_hd : p_rgba );
+	free( p_hd );
 	glBindTexture( GL_TEXTURE_2D, 0 );
 
 	free( p_rgba );

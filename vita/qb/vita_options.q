@@ -327,12 +327,10 @@ script create_vita_options_menu
 			{ pad_back generic_menu_pad_back params = { callback = create_controller_config_menu controller_number = <controller_number> from_options = <from_options> } }
 		]
 	}
-	vita_options_add_item text = "Invert Left X" id = menu_vita_inv_lx name = invert_left_x
-	vita_options_add_item text = "Invert Left Y" id = menu_vita_inv_ly name = invert_left_y
-	vita_options_add_item text = "Invert Camera X" id = menu_vita_inv_rx name = invert_right_x
-	vita_options_add_item text = "Invert Camera Y" id = menu_vita_inv_ry name = invert_right_y
-	vita_options_add_item text = "L/R Buttons" id = menu_vita_lr name = triggers_as_l2r2
-	vita_options_add_item text = "Touch Buttons" id = menu_vita_touch name = touch_on_rear_pad
+	vita_options_add_item text = "Controller" id = menu_vita_pad name = dualshock_layout
+	vita_options_add_item text = "Camera Up/Down" id = menu_vita_inv_ry name = invert_right_y
+	vita_options_add_item text = "Camera Left/Right" id = menu_vita_inv_rx name = invert_right_x
+	vita_options_add_item text = "Skater Up/Down" id = menu_vita_inv_ly name = invert_left_y
 	vita_options_add_item text = "Frame Rate" id = menu_vita_fps name = framerate
 	theme_menu_add_item { text = "Done"
 		id = menu_done
@@ -361,7 +359,7 @@ script vita_options_add_item
 		parent = <id>
 		font = small
 		just = [ center top ]
-		pos = (142.0, -17.0)
+		pos = (154.0, -17.0)
 		text = <value_text>
 		rgba = <text_color>
 	}
@@ -370,7 +368,7 @@ script vita_options_add_item
 		parent = <id>
 		texture = left_arrow
 		rgba = [ 128 128 128 0 ]
-		pos = (122.0, -17.0)
+		pos = (134.0, -17.0)
 		just = [ right top ]
 		scale = 0.75
 	}
@@ -379,7 +377,7 @@ script vita_options_add_item
 		parent = <id>
 		texture = right_arrow
 		rgba = [ 128 128 128 0 ]
-		pos = (162.0, -17.0)
+		pos = (174.0, -17.0)
 		just = [ left top ]
 		scale = 0.75
 	}

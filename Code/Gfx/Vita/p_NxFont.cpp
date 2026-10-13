@@ -15,6 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
+#include <new>
 
 #include "vita_log.h"
 #include "p_NxFont.h"
@@ -31,6 +33,46 @@
 #define ENGINE_2D_Y_MARGIN	16.0f
 
 namespace NxVita { extern int g_vita_mx2; }	// p_NxSprite.cpp (#52)
+namespace Nx { int g_vita_police_x2 = 1; int g_vita_police_pixel = 1; }	// p_NxFont.h
+
+// POLICE HD (pack THUG Pro, vita/tools/thugpro_hd.py) : planche brute
+// ux0:data/thug/hd/fonts/<police>.hd = b'THD1', u32 k, u32 largeur, u32
+// hauteur, RGBA deja converti (palette et alpha double comme plat_load).
+// Acceptee seulement si largeur = k x tw et hauteur = k x th : l'outil a
+// verifie que chaque glyphe HD est exactement k x l'original, les UV gardent
+// donc les memes fractions et la mise en page ne change pas. Sinon : rien,
+// la planche d'origine reste. Rend la planche (a liberer) et k, ou NULL.
+static unsigned char *lire_planche_hd( const char *p_nom, int tw, int th, int *p_k )
+{
+	char path[256];
+	snprintf( path, sizeof( path ), "ux0:data/thug/hd/fonts/%s.hd", p_nom );
+	FILE *f = fopen( path, "rb" );
+	if( !f )
+	{
+		// Pack livre dans le VPK.
+		snprintf( path, sizeof( path ), "app0:hd/fonts/%s.hd", p_nom );
+		f = fopen( path, "rb" );
+	}
+	if( !f )
+		return NULL;
+	unsigned int h[4] = { 0, 0, 0, 0 };
+	unsigned char *p = NULL;
+	if(( fread( h, 4, 4, f ) == 4 ) && ( memcmp( h, "THD1", 4 ) == 0 )
+	   && ( h[1] >= 2 ) && ( h[1] <= 8 ) && ( h[2] == h[1] * tw ) && ( h[3] == h[1] * th ))
+	{
+		p = (unsigned char *)malloc( (size_t)h[2] * h[3] * 4 );
+		if( p && ( fread( p, 4, (size_t)h[2] * h[3], f ) != (size_t)h[2] * h[3] ))
+		{
+			free( p );
+			p = NULL;
+		}
+	}
+	fclose( f );
+	VLOG( "FNT", "'%s' : planche HD %s (x%u)", p_nom, p ? "chargee" : "REFUSEE", h[1] );
+	if( p )
+		*p_k = (int)h[1];
+	return p;
+}
 namespace NxVita
 {
 
@@ -106,6 +148,38 @@ static const STexteVita s_textes_vita[] =
 	{ "System Link",				"LAN" },
 	{ "SYSTEM LINK",				"LAN" },
 	{ "system link",				"LAN" },
+
+	// --- Boutons Blanc et Noir (disposition Xbox, voir p_siodev.cpp) ------
+	// Les icones 16 et 17 sont Blanc et Noir dans ButtonsXbox, mais L2 et R2
+	// dans ButtonsPs2, la police de boutons chargee chez nous : a l'ecran,
+	// " \bg/\bh = Zoom " de l'editeur de parc affichait " L2/R2 ". La Vita
+	// n'a ni L2 ni icone SELECT : on ecrit le nom de la touche en clair.
+	// SELECT = Blanc, SELECT + R = Noir (p_siodev.cpp, read_data).
+	//
+	// Avant les balises seules : meme position de depart, le premier motif
+	// de la table l'emporte. Conseils de l'ecole de THPS4 (goal_tips.q,
+	// sch_goal_*, sans niveau dans THUG) : " spine buttons (\bg or \bh) "
+	// visait L2/R2 de la PS2 ; le spine transfer est L + R (\bi).
+	{ "(\\bg or \\bh)",			"(\\bi)" },
+	// \bN direct : editeurs de parc, de rails, de gaps et Create-A-Goal
+	// (helper_text.q, variantes _xbox : " \bg/\bh = Zoom ",
+	// " \be/\bf/\bg/\bh = Adjust "). La paire en forme courte : la barre
+	// d'aide de l'editeur de rails (6 elements) depasserait 640 de large
+	// avec " SELECT/SELECT+R " (estime d'apres dialog.fnt.xbx).
+	{ "\\bg/\\bh",					"SELECT(+R)" },
+	{ "\\bg",						"SELECT" },
+	{ "\\bh",						"SELECT+R" },
+	// \mN : actions traduites par meta_button_map_xbox (gamemenu.q) en 16
+	// (n : pad_alt2 = Blanc) ou 17 (j : pad_alt = Noir ; m : descendre de la
+	// planche = Noir, mais Blanc = Alt_Trigger le fait aussi,
+	// switch_control.q:5 -- on affiche la touche simple). CTextElement
+	// remplace \m par \b APRES cette table : les deux formes sont couvertes.
+	{ "\\mm",						"SELECT" },		// " Tap \mm to get on or off the board "
+	{ "\\mn",						"SELECT" },		// " \mn=Reset " (couleurs du CAS)
+	{ "\\mj",						"SELECT+R" },	// " \mj = Zoom " (CAS), " (\mj) " (CAT)
+	// Ecran de couleurs du CAS, branche isXbox (colormenu.q).
+	{ "Left Thumbstick",			"Left Stick" },
+	{ "Right Thumbstick",			"Right Stick" },
 };
 
 static const int NUM_TEXTES_VITA = sizeof( s_textes_vita ) / sizeof( s_textes_vita[0] );
@@ -188,6 +262,19 @@ namespace Nx
 // place des fleches (issues #10 et #27).
 static CVitaFont *sp_buttons_font = NULL;
 
+// Icones L, R et L+R de la manette Xbox (ButtonsXbox, indices 14, 15, 18) :
+// ButtonsPs2 y met " L1 ", " R1 " et " L1+R1 ", touches que la Vita n'a pas
+// (ses gachettes s'appellent L et R, et valent L1+L2 / R1+R2, p_siodev.cpp).
+// Le reste de ButtonsPs2 tombe juste (planches relevees dans les deux
+// .fnt.xbx) : 0-3 = Y/X/B/A chez Xbox, triangle/carre/rond/croix chez PS2,
+// ce que notre pilote envoie pour ces touches ; 4-13 fleches dans les deux ;
+// 8 = START. Les icones 16-17 (Blanc/Noir sur Xbox, L2/R2 chez PS2) sont
+// reecrites en texte par s_textes_vita. 9 = BACK (Xbox) / SELECT (PS2) :
+// aucun texte de la branche Xbox ne s'en sert.
+// Chargee une fois a cote de la police de boutons ; si le fichier manque,
+// on garde les icones PS2.
+static CVitaFont *sp_buttons_lr = NULL;
+
 // Str::DehexifyDigit sans son assertion : 0-9 puis a-v, soit 32 valeurs.
 static int dehex( char c )
 {
@@ -204,7 +291,22 @@ void CVitaFont::plat_mark_as_button_font( bool isButton )
 	// (XBox/p_NxFont.cpp:98) ; on ne retient que le true, pour ne pas dependre
 	// de l'ordre de chargement.
 	if( isButton )
+	{
 		sp_buttons_font = this;
+		static bool s_lr_essaye = false;
+		if( !s_lr_essaye )
+		{
+			s_lr_essaye = true;
+			// Construit dans un tampon statique : ni tas du moteur, ni
+			// destructeur a la sortie (glDeleteTextures apres vglEnd).
+			// Jamais liberee, comme la police de boutons, chargee une fois.
+			static double s_lr_mem[( sizeof( CVitaFont ) + sizeof( double ) - 1 ) / sizeof( double )];
+			CVitaFont *p_lr = new( (void *)s_lr_mem ) CVitaFont;
+			if( p_lr->plat_load( "ButtonsXbox" ))
+				sp_buttons_lr = p_lr;
+			VLOG( "FNT", "icones L/R/L+R Xbox : %s", sp_buttons_lr ? "ButtonsXbox" : "absentes, icones PS2" );
+		}
+	}
 }
 
 const SVitaGlyph *CVitaFont::ParseTag( const char **pp, CVitaFont **pp_font ) const
@@ -243,10 +345,20 @@ const SVitaGlyph *CVitaFont::ParseTag( const char **pp, CVitaFont **pp_font ) co
 				const bool meta = ( *q == 'm' ) || ( *q == 'M' );
 				++q;
 				char d = meta ? Nx::CFontManager::sMapMetaCharacterToButton( q ) : *q;
+				const int n = dehex( d );
 				if( sp_buttons_font )
 				{
 					*pp_font = sp_buttons_font;
-					g = sp_buttons_font->GetSpecialGlyph( dehex( d ));
+					g = sp_buttons_font->GetSpecialGlyph( n );
+				}
+				if( sp_buttons_lr && (( n == 14 ) || ( n == 15 ) || ( n == 18 )))
+				{
+					const SVitaGlyph *g_lr = sp_buttons_lr->GetSpecialGlyph( n );
+					if( g_lr )
+					{
+						*pp_font = sp_buttons_lr;
+						g = g_lr;
+					}
 				}
 			}
 			break;
@@ -260,7 +372,7 @@ const SVitaGlyph *CVitaFont::ParseTag( const char **pp, CVitaFont **pp_font ) co
 }
 
 CVitaFont::CVitaFont()
-	: m_texture( 0 ), mp_glyphs( NULL ), m_num_glyphs( 0 ),
+	: m_texture( 0 ), m_texture_x2( 0 ), m_hd_k( 0 ), mp_glyphs( NULL ), m_num_glyphs( 0 ),
 	  m_default_height( 16 ), m_default_base( 12 ),
 	  m_char_spacing( 0 ), m_space_spacing( 8 )
 {
@@ -292,6 +404,11 @@ void CVitaFont::plat_unload()
 	{
 		glDeleteTextures( 1, &m_texture );
 		m_texture = 0;
+	}
+	if( m_texture_x2 )
+	{
+		glDeleteTextures( 1, &m_texture_x2 );
+		m_texture_x2 = 0;
 	}
 	free( mp_glyphs );
 	mp_glyphs    = NULL;
@@ -447,6 +564,25 @@ bool CVitaFont::plat_load( const char *filename )
 	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, tw, th, 0,
 	              GL_RGBA, GL_UNSIGNED_BYTE, p_rgba );
 	glBindTexture( GL_TEXTURE_2D, 0 );
+
+	// Planche HD si le pack est present (voir lire_planche_hd).
+	m_hd_k = 0;
+	{
+		int k = 0;
+		unsigned char *p_hd = lire_planche_hd( filename, tw, th, &k );
+		if( p_hd )
+		{
+			glGenTextures( 1, &m_texture_x2 );
+			glBindTexture( GL_TEXTURE_2D, m_texture_x2 );
+			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+			glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, tw * k, th * k, 0,
+			              GL_RGBA, GL_UNSIGNED_BYTE, p_hd );
+			glBindTexture( GL_TEXTURE_2D, 0 );
+			free( p_hd );
+			m_hd_k = k;
+		}
+	}
 	free( p_rgba );
 
 	// Table des sous-textures, precedee d'un compte qu'on ignore.
@@ -469,6 +605,14 @@ bool CVitaFont::plat_load( const char *filename )
 			mp_glyphs[i].v0 = ( (float)y + 0.5f ) / (float)th;
 			mp_glyphs[i].u1 = ( (float)( x + w ) - 0.5f ) / (float)tw;
 			mp_glyphs[i].v1 = ( (float)( y + h ) - 0.5f ) / (float)th;
+			// Planche HD : meme retrait d'un demi-texel, en texels HD.
+			{
+				const int k = m_hd_k ? m_hd_k : 1;
+				mp_glyphs[i].hu0 = ( (float)( x * k ) + 0.5f ) / (float)( tw * k );
+				mp_glyphs[i].hv0 = ( (float)( y * k ) + 0.5f ) / (float)( th * k );
+				mp_glyphs[i].hu1 = ( (float)(( x + w ) * k ) - 0.5f ) / (float)( tw * k );
+				mp_glyphs[i].hv1 = ( (float)(( y + h ) * k ) - 0.5f ) / (float)( th * k );
+			}
 		}
 		free( p_sub );
 	}
@@ -840,8 +984,24 @@ void RenderText2D( float pri )
 			// Une icone vient d'une autre planche : on la lie le temps d'un
 			// glyphe, comme la Xbox change de police pour un caractere
 			// (chars.cpp:866). lot_texture vide le lot a chaque changement.
+			// Calage au pixel (fpx) : bords de chaque glyphe arrondis au
+			// pixel ecran. La position du stylo, donc la mise en page, ne
+			// change pas ; seul le bord du quad bouge de moins d'un demi-pixel.
+			// Sans ca, chaque lettre tombe sur une fraction differente et est
+			// reechantillonnee differemment : nettete inegale, scintillement.
+			if( Nx::g_vita_police_pixel )
+			{
+				const float rx0 = floorf( x0 + 0.5f ), ry0 = floorf( y0 + 0.5f );
+				float rx1 = floorf( x1 + 0.5f ), ry1 = floorf( y1 + 0.5f );
+				if( rx1 <= rx0 ) rx1 = rx0 + 1.0f;
+				if( ry1 <= ry0 ) ry1 = ry0 + 1.0f;
+				x0 = rx0; y0 = ry0; x1 = rx1; y1 = ry1;
+			}
 			lot_texture( p_gfont->GetTexture());
-			lot_glyphe( x0, y0, x1, y1, g->u0, g->v0, g->u1, g->v1 );
+			if( p_gfont->Nette())
+				lot_glyphe( x0, y0, x1, y1, g->hu0, g->hv0, g->hu1, g->hv1 );
+			else
+				lot_glyphe( x0, y0, x1, y1, g->u0, g->v0, g->u1, g->v1 );
 			if( p_gfont != p_font )
 				lot_texture( p_font->GetTexture());
 

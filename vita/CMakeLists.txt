@@ -16,7 +16,7 @@ include("${VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "THUG")
 set(VITA_TITLEID  "THUG00001")
-set(VITA_VERSION  "01.04")
+set(VITA_VERSION  "01.05")
 
 # ATTRIBUTE2=12 débloque les 109 Mio de RAM supplémentaires (365 au lieu des
 # 256 par défaut). Le moteur tenait dans les 32 Mo de la PS2, donc c'est de la
@@ -373,6 +373,21 @@ if(THUG_GENERES_OK)
   endforeach()
 else()
   message(WARNING "LiveArea absente (vita/livearea/generer.py) : VPK avec la bulle par defaut")
+endif()
+# Pack HD (HUD, icones des themes, police des figures) tire de THUG Pro par
+# vita/tools/thugpro_hd.py. Jamais dans le depot : le dossier vit sur la
+# machine de build et n'entre QUE dans le VPK, sous app0:hd/. Absent : VPK
+# sans pack, le jeu garde les images d'origine.
+set(THUG_HD_DIR "$ENV{HOME}/vita-build/thug-hd" CACHE PATH "Pack HD (sortie de thugpro_hd.py)")
+if(EXISTS "${THUG_HD_DIR}")
+  file(GLOB_RECURSE THUG_HD_FICHIERS RELATIVE "${THUG_HD_DIR}" "${THUG_HD_DIR}/*.hd")
+  foreach(f ${THUG_HD_FICHIERS})
+    list(APPEND THUG_VPK_FICHIERS FILE "${THUG_HD_DIR}/${f}" "hd/${f}")
+  endforeach()
+  list(LENGTH THUG_HD_FICHIERS n_hd)
+  message(STATUS "pack HD : ${n_hd} fichiers de ${THUG_HD_DIR}")
+else()
+  message(STATUS "pack HD absent (${THUG_HD_DIR}) : VPK sans pack")
 endif()
 vita_create_vpk(${PROJECT_NAME}.vpk ${VITA_TITLEID} eboot.bin
   VERSION ${VITA_VERSION}

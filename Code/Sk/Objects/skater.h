@@ -110,6 +110,16 @@
 #endif
 
 
+#ifdef __PLAT_VITA__
+// Vita : regle Xbox (L2 ET R2, les deux gachettes) en disposition Vita, regle
+// PS2 (L2 OU R2) en disposition DualShock (Sys/SIO/Vita/p_siodev.cpp).
+namespace SIO { extern int g_vita_manette_ds; }
+#undef	BREAK_SPINE_BUTTONS
+#undef	WALK_SPINE_BUTTONS
+#define	BREAK_SPINE_BUTTONS ( ::SIO::g_vita_manette_ds ? ( control_pad.m_L2.GetPressed() || control_pad.m_R2.GetPressed()) : ( control_pad.m_L2.GetPressed() && control_pad.m_R2.GetPressed()))
+#define	WALK_SPINE_BUTTONS ( ::SIO::g_vita_manette_ds ? control_pad.m_R2.GetPressed() : ( control_pad.m_L2.GetPressed() && control_pad.m_R2.GetPressed()))
+#endif
+
 #define	VERT_RECOVERY_BUTTONS (BREAK_SPINE_BUTTONS)
 
 // #define	USE_BIKE_PHYSICS (Script::GetInteger(CRCD(0x9e86d1c1,"use_bike_physics")))

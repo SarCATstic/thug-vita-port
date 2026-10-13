@@ -29,9 +29,16 @@
 namespace Nx
 {
 
+// Nettete du texte (2026-10-13) : planche HD du pack THUG Pro si presente
+// (ux0:data/thug/hd/fonts/<police>.hd, vita/tools/thugpro_hd.py) et lettres
+// calees au pixel. Commandes de dev "fnx 0/1" (HD) et "fpx 0/1" (calage).
+extern int g_vita_police_x2;
+extern int g_vita_police_pixel;
+
 struct SVitaGlyph
 {
-	float	u0, v0, u1, v1;
+	float	u0, v0, u1, v1;		// planche d'origine
+	float	hu0, hv0, hu1, hv1;	// planche HD
 	int		w, h;
 	int		baseline;
 };
@@ -43,7 +50,9 @@ public:
 	CVitaFont();
 	virtual ~CVitaFont();
 
-	GLuint				GetTexture() const	{ return m_texture; }
+	GLuint				GetTexture() const	{ return Nette() ? m_texture_x2 : m_texture; }
+	// Vrai si la planche HD existe et est choisie : prendre hu0..hv1.
+	bool				Nette() const	{ return g_vita_police_x2 && m_texture_x2; }
 	const SVitaGlyph *	GetGlyph( unsigned char c ) const;
 	const SVitaGlyph *	GetSpecialGlyph( int index ) const;
 	int					GetHeight() const	{ return m_default_height; }
@@ -70,6 +79,8 @@ private:
 	virtual void	plat_set_rgba_table( Image::RGBA *pTab );
 
 	GLuint			m_texture;
+	GLuint			m_texture_x2;	// planche HD (0 : pas de pack)
+	int				m_hd_k;			// son facteur
 	SVitaGlyph *	mp_glyphs;
 	int				m_num_glyphs;
 	unsigned char	m_map[256];
