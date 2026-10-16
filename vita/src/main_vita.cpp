@@ -108,8 +108,8 @@ int main(int argc, char *argv[])
     // `== GL_FALSE` comme une erreur (ce que faisait le premier jet) tue le
     // process sur le chemin nominal. Le port 9mm ignore purement et
     // simplement ce retour — c'est pour ça qu'il boote.
-    VLOG("GFX", "vglInitExtended(0, 960x544, 6 Mo, no MSAA)...");
-    GLboolean res_fallback = vglInitExtended(0, 960, 544, 6 * 1024 * 1024,
+    VLOG("GFX", "vglInitExtended(0, 640x368, 6 Mo, no MSAA)...");
+    GLboolean res_fallback = vglInitExtended(0, 640, 368, 6 * 1024 * 1024,
                                              SCE_GXM_MULTISAMPLE_NONE);
     VLOG("GFX", "vglInit rendu -> %d (%s)", (int)res_fallback,
          res_fallback ? "resolution RABAISSEE" : "resolution demandee accordee");
